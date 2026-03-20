@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Platformer</title>
+    </head>
+    <body>
+        <canvas style="position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;" id="gameArea"></canvas>
+        <script>
+            const gameArea = document.querySelector("#gameArea");
+            const ctx = gameArea.getContext("2d");
+            gameArea.width = window.innerWidth;
+            gameArea.height = window.innerHeight;
+
+            // ── PLAYER ───────────────────────────────────────────────────────
+            let playerColor   = "#0000ff";
+            let playerX       = 20;
+            let playerY       = 20;
+            let playerWidth   = 25;
+            let playerHeight  = 25;
+            let playerSpeed   = 10;
+            let velocityY     = 0;
+            let gravity       = 0.5;
+            let isOnGround    = false;
+            let canDoubleJump = true;
+            let maxSpeedY= 20;
+            let jumpStrength  = 10;
+            let jumpPressed   = false;
+            let velocityX = 0;
+            let acceleration = 1;  // how fast you reach full speed
+            let friction = 0.25;       // multiplied each frame when no key held (0-1, lower = more friction)
+            let maxSpeedX = 6;
+            let coyoteTime = 0;
+            let coyoteTimeMax = 8; // number of frames the grace period lasts
+            let gameStarted = false;
+            let paused = false;
+            let bounceFrames = 0;
+
+            // ── PLATFORMS ────────────────────────────────────────────────────
+            // Each platform has x, y, width, height, color
+            // angle is in degrees — 0 means flat, positive tilts right side down
+            let selectedLevel = 0;
+            let levels = [
+                {
+                    id: "0",
+                    platforms: [
+                        { x: 75, y: 400, width: 120, height: 20, color: "#00ff00", angle: 0 },
+                        { x: 275, y: 400, width: 120, height: 20, color: "#00ff00", angle: 0 },
+                        { x: 475, y: 400, width: 120, height: 20, color: "#00ff00", angle: 0 },
+                        { x: 875, y: 400, width: 120, height: 20, color: "#00ff00", angle: 0 },
+                        { x: 1075, y: 400, width: 120, height: 20, color: "#00ff00", angle: 0 },
+                        { x: 0, y: 500, width: 5000, height: 200, color: "#ff0000", angle: 0, kill: true }
+                    ],
+                    start: [ 100, 250 ],
+                    end: [ 1150, 250 ],
+                    text: [
+                        { x: 250, y: 150, text: "Move with arrow keys or WASD", fontSize: "30px", color: "#000000" },
+                        { x: 89, y: 230, text: "This is the start", fontSize: "20px", color: "#000000" },
+                        { x: 1050, y: 230, text: "The end is over here", fontSize: "20px", color: "#000000" },
+                        { x: 600, y: 300, text: "Jump again in the air for a double jump", fontSize: "20px", color: "#000000" },
+                        { x: 650, y: 550, text: "Red platforms kill you", fontSize: "25px", color: "#ffffff" }
+                    ]
+                },
+                {
+                    id: "1",
+                    platforms: [
+                        { x: 150, y: 200, width: 120, height: 20, color: "#00ff00", angle: 0 },
+                        { x: 500, y: 300, width: 120, height: 20, color: "#00ff00", angle: 0 },
+                        { x: 350, y: 0, width: 20, height: 370, color: "#ff0000", angle: 0, kill: true },
+                        { x: 800, y: 0, width: 20, height: 250, color: "#ff0000", angle: 0, kill: true },
+                        { x: 240, y: 550, width: 300, height: 20, color: "#ff00ff", angle: 0, bounce: true },
+                        { x: 650, y: 400, width: 200, height: 20, color: "#ff00ff", angle: 0, bounce: true },
+                        { x: 1100, y: 300, width: 120, height: 20, color: "#00ff00", angle: 0 },
+                        { x: 0, y: 600, width: 5000, height: 200, color: "#ff0000", angle: 0, kill: true }
+                    ],
+                    start: [ 150, 150 ],
+                    end: [ 1140, 260 ],
+                    text: [
+                        { x: 590, y: 500, text: "Purple platforms make you bounce", fontSize: "20px", color: "#000000" }
+                    ]
+                },
+                {
+                    id: "2",
+                    platforms: [
+                        { x: 30, y: 100, width: 120, height: 20, color: "#00ff00", angle: 0 },
+                        { x: 200, y: 435, width: 200, height: 20, color: "#ff00ff", angle: 25, bounce: true },
+                        { x: 820, y: 500, width: 200, height: 20, color: "#00ff00", angle: 0 },
+                        { x: 1120, y: 500, width: 200, height: 20, color: "#00ff00", angle: 0 },
+                        { x: 1020, y: 300, width: 100, height: 150, color: "#00ff00", angle: 0 },
+                        { x: 1000, y: 160, width: 20, height: 150, color: "#ff0000", angle: 0, kill: true },
+                        { x: 1115, y: 160, width: 20, height: 150, color: "#ff0000", angle: 0, kill: true },
+                        { x: 1250, y: 400, width: 150, height: 20, color: "#ff00ff", angle: 0, bounce: true },
+                        { x: 0, y: 625, width: 5000, height: 200, color: "#ff0000", angle: 0, kill: true }
+                    ],
+                    start: [ 30, 30 ],
+                    end: [ 1050, 250 ],
+                    text: [
+                        { x: 982, y: 550, text: "Hold jump to bounce higher", fontSize: "20px", color: "#000000" },
+                        { x: 243, y: 303, text: "Bouncy platforms work on an angle too", fontSize: "20px", color: "#000000" }
+                    ]
+                },
+            ]
+            
+            let boundingWalls = [
+                { x: 0, y: -20, width: gameArea.width, height: 20, color: "transparent", angle: 0  },
+                { x: 0, y: gameArea.height, width: gameArea.width, height: 20, color: "transparent", angle: 0  },
+                { x: -20, y: 0, width: 20, height: gameArea.height, color: "transparent", angle: 0  },
+                { x: gameArea.width, y: 0, width: 20, height: gameArea.height, color: "transparent", angle: 0  }
+            ];
+
+            // ── INPUT ────────────────────────────────────────────────────────
+            let keys = {};
+            document.addEventListener("keydown", e => keys[e.key] = true);
+            document.addEventListener("keyup", e => {
+                keys[e.key] = false;
+                if (e.key === "ArrowUp" || e.key === "w") jumpPressed = false;
+            });
+
+            function getCurrentPlatforms() {
+                return [...levels[selectedLevel].platforms, ...boundingWalls];
+            }
+
+            function getCurrentText() {
+                return [...levels[selectedLevel].text];
+            }
+
+            // ── SAT HELPERS ──────────────────────────────────────────────────
+
+            // Returns the 4 corners of a rectangle, rotated around its center
+            // angle is in radians
+            function getRectVertices(x, y, width, height, angleRad) {
+                const cx = x + width  / 2; // center x
+                const cy = y + height / 2; // center y
+                const cos = Math.cos(angleRad);
+                const sin = Math.sin(angleRad);
+
+                // the 4 corners relative to center before rotation
+                const corners = [
+                    {x: -width/2, y: -height/2}, // top-left
+                    {x:  width/2, y: -height/2}, // top-right
+                    {x:  width/2, y:  height/2}, // bottom-right
+                    {x: -width/2, y:  height/2}, // bottom-left
+                ];
+
+                // rotate each corner around the center using rotation matrix
+                // rotated.x = corner.x * cos - corner.y * sin
+                // rotated.y = corner.x * sin + corner.y * cos
+                // then translate back to world position by adding center
+                return corners.map(c => ({
+                    x: cx + c.x * cos - c.y * sin,
+                    y: cy + c.x * sin + c.y * cos,
+                }));
+            }
+
+            // Returns the edge normals (axes) for a set of vertices
+            // Each edge of the shape gives one axis perpendicular to it
+            // These are the axes SAT needs to test
+            function getAxes(vertices) {
+                let axes = [];
+                for (let i = 0; i < vertices.length; i++) {
+                    const v1 = vertices[i];
+                    const v2 = vertices[(i + 1) % vertices.length];
+                    const edge = {x: v2.x - v1.x, y: v2.y - v1.y};
+                    // perpendicular to the edge — rotate 90 degrees
+                    const normal = {x: -edge.y, y: edge.x};
+                    // normalize so length is 1
+                    const len = Math.sqrt(normal.x * normal.x + normal.y * normal.y);
+                    axes.push({x: normal.x / len, y: normal.y / len});
+                }
+                return axes;
+            }
+
+            // Projects all vertices onto an axis using dot products
+            // Returns min and max — the "shadow" of the shape on that axis
+            function project(vertices, axis) {
+                let min =  Infinity;
+                let max = -Infinity;
+                for (const v of vertices) {
+                    // dot product tells us how far along the axis this vertex is
+                    const dot = v.x * axis.x + v.y * axis.y;
+                    if (dot < min) min = dot;
+                    if (dot > max) max = dot;
+                }
+                return {min, max};
+            }
+
+            // Main SAT function
+            // Returns null if no collision
+            // Returns {overlap, axis} if colliding — axis is the direction
+            // to push the player out, overlap is how far
+            function sat(vertsA, vertsB) {
+                // collect all axes from both shapes
+                const axes = [...getAxes(vertsA), ...getAxes(vertsB)];
+
+                let minOverlap = Infinity;
+                let smallestAxis = null;
+
+                for (const axis of axes) {
+                    const projA = project(vertsA, axis);
+                    const projB = project(vertsB, axis);
+
+                    // if shadows don't overlap on this axis, no collision at all
+                    if (projA.max <= projB.min || projB.max <= projA.min) {
+                        return null;
+                    }
+
+                    // how much do they overlap on this axis?
+                    const overlap = Math.min(projA.max, projB.max) - Math.max(projA.min, projB.min);
+
+                    // keep track of the smallest overlap — this is the
+                    // minimum translation vector, the shortest push to separate them
+                    if (overlap < minOverlap) {
+                        minOverlap = overlap;
+                        smallestAxis = axis;
+                    }
+                }
+
+                // make sure the push direction points from B toward A
+                // (from platform toward player) so we push the player out
+                const centerA = {
+                    x: vertsA.reduce((s, v) => s + v.x, 0) / vertsA.length,
+                    y: vertsA.reduce((s, v) => s + v.y, 0) / vertsA.length,
+                };
+                const centerB = {
+                    x: vertsB.reduce((s, v) => s + v.x, 0) / vertsB.length,
+                    y: vertsB.reduce((s, v) => s + v.y, 0) / vertsB.length,
+                };
+                const dir = {x: centerA.x - centerB.x, y: centerA.y - centerB.y};
+                // if axis points wrong way, flip it
+                if (dir.x * smallestAxis.x + dir.y * smallestAxis.y < 0) {
+                    smallestAxis = {x: -smallestAxis.x, y: -smallestAxis.y};
+                }
+
+                return {overlap: minOverlap, axis: smallestAxis};
+            }
+
+            // ── UPDATE ───────────────────────────────────────────────────────
+            function update() {
+                prevVelocityY = velocityY;
+                // move player to start if game just started
+                if(!gameStarted) {
+                    playerX = levels[selectedLevel].start[0];
+                    playerY = levels[selectedLevel].start[1];
+                    gameStarted = true;
+                }
+                
+                // horizontal movement
+                if (keys["ArrowLeft"]  || keys["a"]) velocityX -= acceleration;
+                if (keys["ArrowRight"] || keys["d"]) velocityX += acceleration;
+
+                if(isOnGround) {
+                    coyoteTime = coyoteTimeMax;
+                } else if (coyoteTime > 0) {
+                    coyoteTime -= 1;
+                } else {
+                    coyoteTime = 0;
+                }
+                
+                // clamp to max speed
+                if (bounceFrames === 0) {
+                    velocityX = Math.max(-maxSpeedX, Math.min(maxSpeedX, velocityX));
+                }
+                
+                // apply friction when no horizontal key is held
+                if (!keys["ArrowLeft"] && !keys["a"] && !keys["ArrowRight"] && !keys["d"]) {
+                    if (bounceFrames > 0) {
+                        bounceFrames--;
+                    } else {
+                        velocityX *= friction;
+                    }
+                }
+                
+                playerX += velocityX;
+
+                // apply gravity — cap at max speed
+                if (velocityY + gravity < maxSpeedY) {
+                    velocityY += gravity;
+                } else {
+                    velocityY = maxSpeedY;
+                }
+
+                // apply vertical velocity
+                playerY += velocityY;
+
+                // reset ground state each frame — will be set true if we land
+                isOnGround = false;
+
+                // floor collision — snap to bottom of screen
+                if (playerY >= gameArea.height - playerHeight) {
+                    playerY    = gameArea.height - playerHeight;
+                    velocityY  = 0;
+                    isOnGround = true;
+                    canDoubleJump = true;
+                }
+
+                // ── platform collision using SAT ──────────────────────────
+                // get player vertices — player has no rotation so angle is 0
+                const playerVerts = getRectVertices(playerX, playerY, playerWidth, playerHeight, 0);
+
+                for (const p of getCurrentPlatforms()) {
+                    const angleRad = (p.angle || 0) * Math.PI / 180;
+                    const platVerts = getRectVertices(p.x, p.y, p.width, p.height, angleRad);
+
+                    const result = sat(playerVerts, platVerts);
+
+                    if (result) {
+                        if (p.kill) {
+                            // reset player to start of current level
+                            playerX = levels[selectedLevel].start[0];
+                            playerY = levels[selectedLevel].start[1];
+                            velocityX = 0;
+                            velocityY = 0;
+                            isOnGround = false;
+                            canDoubleJump = true;
+                            coyoteTime = 0;
+                        } else if (p.bounce) {
+                            playerX += result.axis.x * result.overlap;
+                            playerY += result.axis.y * result.overlap;
+                        
+                            const angleRad = (p.angle || 0) * Math.PI / 180;
+                            const boostMultiplier = (keys["ArrowUp"] || keys["w"]) ? 1.1 : 0.9;
+                        
+                            if (Math.abs(p.angle || 0) < 5) {
+                                // flat platform — just reverse vertical velocity, don't touch horizontal
+                                velocityY = -Math.abs(velocityY) * boostMultiplier;
+                            } else {
+                                // angled platform — full vector reflection
+                                const dot = velocityX * result.axis.x + velocityY * result.axis.y;
+                                velocityX = (velocityX - 2 * dot * result.axis.x) * boostMultiplier;
+                                velocityY = (velocityY - 2 * dot * result.axis.y) * boostMultiplier;
+                                bounceFrames = 10;
+                            }
+                        
+                            canDoubleJump = true;
+                            coyoteTime = coyoteTimeMax;
+                            isOnGround = false;
+                        } else {
+                            // push the player out along the minimum translation axis
+                            playerX += result.axis.x * result.overlap;
+                            playerY += result.axis.y * result.overlap;
+    
+                            // if the push was mostly upward (landing on top)
+                            // set ground state and stop vertical velocity
+                            if (result.axis.y < -0.5) {
+                                // landing on top — stop falling, set ground state
+                                velocityY     = 0;
+                                isOnGround    = true;
+                                canDoubleJump = true;
+                            } else if (result.axis.y > 0.5) {
+                                // hitting ceiling — stop upward velocity
+                                velocityY = 0;
+                            } else {
+                                // hitting a wall (push is mostly horizontal)
+                                // zero out horizontal velocity so player doesn't stick to wall
+                                // but leave velocityY completely alone so jump momentum is preserved
+                                velocityX = 0;
+                            }
+                        }
+                    }
+                }
+
+                const end = levels[selectedLevel].end;
+                if (
+                    playerX < end[0] + 25 &&
+                    playerX + playerWidth > end[0] &&
+                    playerY < end[1] + 25 &&
+                    playerY + playerHeight > end[1]
+                ) {
+                    alert("You win!");
+                    jumpPressed = false;
+                    keys = {};
+                    if (selectedLevel < levels.length - 1) {
+                        selectedLevel++;
+                    } else {
+                        selectedLevel = 0; // loop back to first level if on last
+                    }
+                    playerX = levels[selectedLevel].start[0];
+                    playerY = levels[selectedLevel].start[1];
+                    velocityX = 0;
+                    velocityY = 0;
+                    isOnGround = false;
+                    canDoubleJump = true;
+                    coyoteTime = 0;
+                }
+
+                // jumping — only on fresh keypress, not while held
+                if ((keys["ArrowUp"] || keys["w"]) && !jumpPressed && (coyoteTime > 0 || canDoubleJump)) {
+                    // if we still have coyote time this is a regular jump — use it up
+                    if (coyoteTime > 0) {
+                        coyoteTime = 0;
+                    } else {
+                        // no coyote time left so this is the double jump — consume it
+                        canDoubleJump = false;
+                    }
+                    velocityY  = -jumpStrength;
+                    jumpPressed = true;
+                    isOnGround  = false;
+                }
+            }
+
+            function renderLevel(level) {
+                
+            }
+
+            // ── DRAW ─────────────────────────────────────────────────────────
+            function draw() {
+                ctx.clearRect(0, 0, gameArea.width, gameArea.height);
+                ctx.fillStyle = "#ffff00";
+                ctx.fillRect(levels[selectedLevel].start[0], levels[selectedLevel].start[1], 25, 25);
+                ctx.fillStyle = "#00ffff";
+                ctx.fillRect(levels[selectedLevel].end[0], levels[selectedLevel].end[1], 25, 25);
+
+                // draw platforms — rotate around their center for angled ones
+                for (const p of getCurrentPlatforms()) {
+                    const angleRad = (p.angle || 0) * Math.PI / 180;
+                    const cx = p.x + p.width  / 2;
+                    const cy = p.y + p.height / 2;
+
+                    ctx.save();
+                    ctx.translate(cx, cy);     // move origin to platform center
+                    ctx.rotate(angleRad);       // rotate
+                    ctx.fillStyle = p.color;
+                    ctx.fillRect(-p.width/2, -p.height/2, p.width, p.height);
+                    ctx.restore();             // undo the rotation and translation
+                }
+
+                for (const t of getCurrentText()) {
+                    ctx.font = t.fontSize + " Arial";
+                    ctx.fillStyle = t.color;
+                    ctx.fillText(t.text, t.x, t.y);
+                }
+
+                // draw player
+                ctx.fillStyle = playerColor;
+                ctx.fillRect(playerX, playerY, playerWidth, playerHeight);
+            }
+
+            // ── PAUSE ────────────────────────────────────────────────────────
+            document.addEventListener("keydown", function(e) {
+                if (e.key === "p") {
+                    e.preventDefault();
+                    paused = !paused;
+                }
+            });
+
+            // ── GAME LOOP ────────────────────────────────────────────────────
+            function gameLoop() {
+                if (!paused) {
+                    update();
+                    draw();
+                }
+                requestAnimationFrame(gameLoop);
+            }
+            requestAnimationFrame(gameLoop);
+
+            // temp function for level creation
+            gameArea.addEventListener("click", function(e) {
+                const rect = gameArea.getBoundingClientRect();
+            
+                const scaleX = gameArea.width / rect.width;
+                const scaleY = gameArea.height / rect.height;
+            
+                const x = (e.clientX - rect.left) * scaleX;
+                const y = (e.clientY - rect.top) * scaleY;
+            
+                alert(x + " " + y);
+            });
+        </script>
+    </body>
+</html>
